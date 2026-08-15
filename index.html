@@ -1,0 +1,1316 @@
+<title>XGBoost, ronda por ronda</title>
+<style>
+:root{
+  color-scheme: light;
+  --plane:#F1F3EF;
+  --surface:#FAFBF9;
+  --surface-2:#E9ECE5;
+  --ink:#141A13;
+  --ink-2:#4C554A;
+  --muted:#7E877C;
+  --rule:#DEE3DA;
+  --rule-2:#C9D0C4;
+  --accent:#5A46C8;
+  --accent-wash:#ECE9FA;
+  --amber:#C97F00;
+  --teal:#1B9E7A;
+  --pos:#D0483F;
+  --neg:#2A78D6;
+  --zero:#DCDFD8;
+  --shadow:0 1px 1px rgba(20,26,19,.04), 0 10px 30px -18px rgba(20,26,19,.35);
+  --serif:"Iowan Old Style","Palatino Linotype","URW Palladio L",P052,Palatino,"Book Antiqua",Georgia,serif;
+  --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,"Cascadia Mono",Menlo,Consolas,"Liberation Mono",monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --plane:#0D110C;
+    --surface:#171C16;
+    --surface-2:#212820;
+    --ink:#EDF1EA;
+    --ink-2:#B0B8AC;
+    --muted:#7E877C;
+    --rule:#262E25;
+    --rule-2:#394237;
+    --accent:#8676DF;
+    --accent-wash:#211D34;
+    --amber:#BE8A12;
+    --teal:#1F9E77;
+    --pos:#E36A62;
+    --neg:#4C93E8;
+    --zero:#2C332B;
+    --shadow:0 1px 1px rgba(0,0,0,.3), 0 12px 34px -20px rgba(0,0,0,.9);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --plane:#0D110C;
+  --surface:#171C16;
+  --surface-2:#212820;
+  --ink:#EDF1EA;
+  --ink-2:#B0B8AC;
+  --muted:#7E877C;
+  --rule:#262E25;
+  --rule-2:#394237;
+  --accent:#8676DF;
+  --accent-wash:#211D34;
+  --amber:#BE8A12;
+  --teal:#1F9E77;
+  --pos:#E36A62;
+  --neg:#4C93E8;
+  --zero:#2C332B;
+  --shadow:0 1px 1px rgba(0,0,0,.3), 0 12px 34px -20px rgba(0,0,0,.9);
+}
+
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;
+  background:var(--plane);
+  color:var(--ink);
+  font-family:var(--sans);
+  font-size:17px;
+  line-height:1.62;
+  padding:0 20px 90px;
+}
+::selection{background:var(--accent-wash);color:var(--ink)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:3px}
+
+main{
+  display:grid;
+  grid-template-columns:1fr min(66ch,100%) 1fr;
+  row-gap:0;
+}
+main > *{grid-column:2}
+.plate{grid-column:1/-1;width:min(1140px,100%);justify-self:center;margin:34px 0}
+
+/* ── tipografía ─────────────────────────────────────── */
+h1,h2,h3{font-family:var(--serif);font-weight:600;text-wrap:balance;margin:0}
+h1{font-size:clamp(2.6rem,7vw,4.3rem);line-height:1.02;letter-spacing:-.02em}
+h2{font-size:clamp(1.7rem,3.6vw,2.35rem);line-height:1.12;letter-spacing:-.012em}
+h3{font-size:1.12rem;line-height:1.3}
+p{margin:0 0 1.05em}
+a{color:var(--accent)}
+.eyebrow{
+  font-family:var(--mono);font-size:.665rem;letter-spacing:.19em;text-transform:uppercase;
+  color:var(--muted);margin:0 auto .6em;display:flex;align-items:center;gap:.75em;
+}
+.eyebrow::after{content:"";flex:1;height:1px;background:var(--rule)}
+.lede{font-size:1.19rem;color:var(--ink-2);line-height:1.55}
+.note{font-size:.87rem;color:var(--ink-2);line-height:1.5}
+strong{font-weight:650;color:var(--ink)}
+.mm{font-family:var(--serif);font-style:italic;font-size:1.06em;white-space:nowrap}
+.mm sub{font-style:normal;font-size:.68em}
+.tok{font-family:var(--mono);font-size:.86em;background:var(--surface-2);padding:.1em .38em;border-radius:4px;font-style:normal}
+.k-acc{color:var(--accent);font-weight:600}
+.k-pos{color:var(--pos);font-weight:600}
+.k-neg{color:var(--neg);font-weight:600}
+.k-amb{color:var(--amber);font-weight:600}
+.k-tea{color:var(--teal);font-weight:600}
+
+section{padding:52px 0 8px;scroll-margin-top:20px}
+section + section{border-top:1px solid var(--rule)}
+main > section{grid-column:1/-1;width:min(1140px,100%);justify-self:center}
+/* la medida se fija en rem, no en ch: ch depende del tamaño de fuente de
+   cada elemento y daría una columna distinta a cada título y párrafo */
+section > *{max-width:36rem;margin-left:auto;margin-right:auto}
+section > .plate,section > .full{max-width:none}
+
+/* ── portada ────────────────────────────────────────── */
+header{grid-column:1/-1;width:min(1140px,100%);justify-self:center;padding:clamp(48px,9vh,104px) 0 26px}
+.hero{display:grid;grid-template-columns:minmax(0,1fr);gap:30px;align-items:end}
+@media(min-width:900px){.hero{grid-template-columns:1.02fr .98fr;gap:44px}}
+.hero-kicker{
+  font-family:var(--mono);font-size:.66rem;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--accent);margin-bottom:1.5em
+}
+h1 em{font-style:italic;color:var(--accent)}
+.hero p{max-width:46ch;margin-top:1.1em}
+.hero-eq{
+  margin-top:1.5em;padding-top:1.1em;border-top:1px solid var(--rule);
+  font-family:var(--serif);font-size:clamp(1rem,2.3vw,1.24rem);color:var(--ink-2);font-style:italic
+}
+.hero-eq b{color:var(--ink);font-weight:600}
+.hero-fig{
+  background:var(--surface);border:1px solid var(--rule);border-radius:3px;
+  box-shadow:var(--shadow);padding:14px 14px 10px;position:relative
+}
+.hero-fig figcaption{
+  font-family:var(--mono);font-size:.68rem;letter-spacing:.07em;
+  color:var(--muted);display:flex;justify-content:space-between;gap:1em;margin-top:6px
+}
+
+/* ── láminas / figuras ──────────────────────────────── */
+.panel{
+  background:var(--surface);border:1px solid var(--rule);border-radius:3px;
+  box-shadow:var(--shadow);padding:16px 16px 12px;position:relative;min-width:0
+}
+.panel > h3{font-family:var(--sans);font-size:.9rem;font-weight:650;letter-spacing:-.005em}
+.panel > .sub{font-size:.79rem;color:var(--muted);margin:.15em 0 .7em;line-height:1.4}
+.grid2{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}
+@media(min-width:860px){.grid2{grid-template-columns:1fr 1fr}}
+svg.chart{display:block;width:100%;height:auto;overflow:visible}
+.scroll-x{overflow-x:auto;overflow-y:hidden}
+.legend{
+  display:flex;flex-wrap:wrap;gap:.5em 1.15em;margin-top:9px;
+  font-family:var(--mono);font-size:.68rem;letter-spacing:.04em;color:var(--ink-2)
+}
+.legend span{display:inline-flex;align-items:center;gap:.45em}
+.sw{width:14px;height:3px;border-radius:2px;flex:none}
+.sw.dot{width:8px;height:8px;border-radius:50%}
+.sw.dash{background:none;border-top:2px dashed currentColor;height:0}
+
+/* ── controles ──────────────────────────────────────── */
+.console{
+  background:var(--surface);border:1px solid var(--rule);border-radius:3px;
+  box-shadow:var(--shadow);padding:14px 16px;margin-bottom:16px
+}
+.transport{display:flex;flex-wrap:wrap;align-items:center;gap:9px}
+button{
+  font-family:var(--sans);font-size:.83rem;font-weight:600;color:var(--ink);
+  background:var(--surface);border:1px solid var(--rule-2);border-radius:3px;
+  padding:.44em .9em;cursor:pointer;line-height:1.35;transition:background .13s,border-color .13s
+}
+button:hover{background:var(--surface-2);border-color:var(--muted)}
+button:active{transform:translateY(.5px)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.primary:hover{filter:brightness(1.08);background:var(--accent)}
+button[disabled]{opacity:.42;cursor:not-allowed}
+.round-badge{
+  margin-left:auto;font-family:var(--mono);font-size:.76rem;color:var(--ink-2);
+  letter-spacing:.06em;font-variant-numeric:tabular-nums;white-space:nowrap
+}
+.round-badge b{color:var(--ink);font-size:1.02rem}
+.sliders{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));
+  gap:11px 20px;margin-top:14px;padding-top:13px;border-top:1px solid var(--rule)
+}
+/* sin uppercase: convertiría η, λ y γ en Η, Λ y Γ, que son otros símbolos */
+.ctl label{
+  display:flex;justify-content:space-between;align-items:baseline;gap:.6em;
+  font-family:var(--mono);font-size:.7rem;letter-spacing:.06em;color:var(--muted)
+}
+.ctl label b{
+  font-size:.85rem;color:var(--ink);letter-spacing:0;text-transform:none;
+  font-variant-numeric:tabular-nums;font-weight:600
+}
+input[type=range]{
+  -webkit-appearance:none;appearance:none;width:100%;background:none;margin:5px 0 0;height:16px;cursor:pointer
+}
+input[type=range]::-webkit-slider-runnable-track{height:3px;background:var(--rule-2);border-radius:2px}
+input[type=range]::-moz-range-track{height:3px;background:var(--rule-2);border-radius:2px}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:13px;height:13px;border-radius:50%;background:var(--accent);
+  border:2px solid var(--surface);margin-top:-5px;box-shadow:0 0 0 1px var(--accent)
+}
+input[type=range]::-moz-range-thumb{
+  width:13px;height:13px;border-radius:50%;background:var(--accent);
+  border:2px solid var(--surface);box-shadow:0 0 0 1px var(--accent)
+}
+.narration{
+  margin-top:13px;padding:10px 13px;background:var(--accent-wash);border-radius:3px;
+  font-size:.88rem;line-height:1.5;color:var(--ink);min-height:2.9em
+}
+.narration b{font-weight:650}
+
+/* ── indicadores ────────────────────────────────────── */
+/* separadores con borde, no con gap: un gap deja huecos grises cuando la
+   última fila no se llena */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(126px,1fr));
+  background:var(--surface);border:1px solid var(--rule);border-right:0;border-bottom:0;
+  border-radius:3px;overflow:hidden;margin-top:16px}
+.tile{padding:11px 13px;border-right:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.tile .t-lab{font-family:var(--mono);font-size:.63rem;letter-spacing:.13em;text-transform:uppercase;color:var(--muted)}
+.tile .t-val{font-family:var(--serif);font-size:1.6rem;line-height:1.15;margin-top:.12em;font-variant-numeric:tabular-nums}
+.tile .t-sub{font-size:.71rem;color:var(--muted);line-height:1.3}
+
+/* ── tarjetas ───────────────────────────────────────── */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));gap:14px;margin:26px 0 8px}
+.card{background:var(--surface);border:1px solid var(--rule);border-radius:3px;padding:15px 16px 16px}
+.card .c-sym{font-family:var(--serif);font-style:italic;font-size:1.5rem;color:var(--accent);line-height:1}
+.card h3{margin:.35em 0 .3em;font-family:var(--sans);font-size:.95rem;font-weight:650}
+.card p{font-size:.85rem;color:var(--ink-2);line-height:1.5;margin:0}
+
+/* ── tabla ──────────────────────────────────────────── */
+details{margin-top:14px;border-top:1px solid var(--rule);padding-top:11px}
+summary{
+  font-family:var(--mono);font-size:.7rem;letter-spacing:.11em;text-transform:uppercase;
+  color:var(--muted);cursor:pointer
+}
+summary:hover{color:var(--ink)}
+.tbl-wrap{overflow-x:auto;margin-top:11px;max-height:300px;overflow-y:auto}
+table{border-collapse:collapse;width:100%;font-size:.8rem;font-variant-numeric:tabular-nums}
+th,td{text-align:right;padding:.34em .7em;border-bottom:1px solid var(--rule);white-space:nowrap}
+th{font-family:var(--mono);font-size:.64rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+  position:sticky;top:0;background:var(--surface)}
+th:first-child,td:first-child{text-align:left}
+tbody tr.now{background:var(--accent-wash)}
+
+/* ── explorador de ganancia ─────────────────────────── */
+.gain-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}
+@media(min-width:900px){.gain-grid{grid-template-columns:1.35fr 1fr}}
+.formula{
+  font-family:var(--serif);font-size:1.02rem;line-height:2.25;background:var(--surface-2);
+  border-radius:3px;padding:13px 15px;overflow-x:auto
+}
+.formula .num{font-family:var(--mono);font-size:.8rem;font-style:normal;font-variant-numeric:tabular-nums;
+  background:var(--surface);padding:.1em .35em;border-radius:3px;border:1px solid var(--rule);white-space:nowrap}
+.formula .frac{display:inline-flex;flex-direction:column;vertical-align:middle;text-align:center;
+  font-size:.8rem;line-height:1.45;margin:0 .12em}
+.formula .frac > span:first-child{border-bottom:1px solid var(--rule-2);padding:0 .2em}
+.formula .frac > span:last-child{padding:0 .2em}
+.readout{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--rule);border:1px solid var(--rule);
+  border-radius:3px;overflow:hidden;margin-top:13px}
+.readout div{background:var(--surface);padding:9px 12px}
+.readout .r-lab{font-family:var(--mono);font-size:.68rem;letter-spacing:.06em;color:var(--muted)}
+.readout .r-val{font-family:var(--mono);font-size:.98rem;font-variant-numeric:tabular-nums;margin-top:.1em}
+
+/* ── tooltip ────────────────────────────────────────── */
+.fig{position:relative}
+.tip{
+  position:absolute;pointer-events:none;opacity:0;transform:translate(-50%,-118%);
+  background:var(--ink);color:var(--plane);font-family:var(--mono);font-size:.7rem;line-height:1.55;
+  padding:6px 9px;border-radius:3px;white-space:nowrap;z-index:9;transition:opacity .1s;
+  font-variant-numeric:tabular-nums;box-shadow:0 6px 18px -8px rgba(0,0,0,.6)
+}
+.tip.on{opacity:1}
+.tip i{font-style:normal;opacity:.62}
+
+/* ── cierre ─────────────────────────────────────────── */
+.recap{border-left:2px solid var(--accent);padding:2px 0 2px 18px;margin:26px auto;font-size:1.05rem}
+footer{
+  grid-column:1/-1;width:min(1140px,100%);justify-self:center;margin-top:56px;padding-top:20px;
+  border-top:1px solid var(--rule);font-family:var(--mono);font-size:.68rem;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--muted);display:flex;flex-wrap:wrap;gap:.7em 1.6em;justify-content:space-between
+}
+@media (prefers-reduced-motion: reduce){
+  *{animation-duration:.001ms !important;transition-duration:.001ms !important}
+}
+</style>
+
+<main>
+
+<header>
+  <div class="hero">
+    <div>
+      <div class="hero-kicker">Gradient boosting, explicado paso a paso</div>
+      <h1>XGBoost,<br>ronda por <em>ronda</em></h1>
+      <p class="lede">Un árbol de decisión pequeño es un modelo torpe: sólo sabe partir el espacio en cajas y predecir un número en cada una. XGBoost no intenta arreglarlo. Entrena cientos de árboles torpes, y hace que <strong>cada uno se dedique exclusivamente al error que dejó el anterior</strong>.</p>
+      <div class="hero-eq">
+        <b><span class="mm">F<sub>t</sub>(x) = F<sub>t−1</sub>(x) + η · h<sub>t</sub>(x)</span></b><br>
+        la predicción de hoy es la de ayer más una corrección tímida
+      </div>
+    </div>
+    <figure class="hero-fig fig" id="heroFig">
+      <svg class="chart" id="heroSvg" viewBox="0 0 520 250" role="img" aria-label="Animación: la predicción escalonada de XGBoost se ajusta progresivamente a los datos a lo largo de 24 rondas."></svg>
+      <figcaption><span>60 puntos · profundidad 2 · η = 0,35</span><span id="heroRound">ronda 0</span></figcaption>
+    </figure>
+  </div>
+</header>
+
+<section id="idea">
+  <p class="eyebrow">La idea</p>
+  <h2>Aprender sumando correcciones</h2>
+  <p>Casi todos los modelos aprenden de una vez: ajustan sus parámetros hasta que la curva pasa lo mejor posible entre los datos. El <em>boosting</em> hace lo contrario. Empieza con una predicción deliberadamente mala —la media de <span class="mm">y</span>, una línea plana— y luego repite un ciclo muy corto:</p>
+
+  <div class="plate" id="chainPlate">
+    <div class="panel">
+      <h3>El ciclo de una ronda</h3>
+      <p class="sub">Se repite idéntico cientos de veces. Lo único que cambia entre una ronda y la siguiente son los residuos.</p>
+      <div class="scroll-x">
+        <svg class="chart" id="chainSvg" viewBox="0 0 1000 176" style="min-width:700px" role="img" aria-label="Diagrama del ciclo: medir el error, ajustar un árbol al error, encoger la corrección con eta, sumarla al ensamble, y volver a empezar."></svg>
+      </div>
+    </div>
+  </div>
+
+  <p>La palabra clave es <strong>residuo</strong>: lo que sobra de <span class="mm">y</span> después de restar lo que el modelo ya explica. Si el modelo se queda corto en un punto, ahí queda un residuo <span class="k-pos">positivo</span>; si se pasa, uno <span class="k-neg">negativo</span>. El árbol de la ronda siguiente no ve los datos originales en absoluto: <strong>ve el mapa de esos errores</strong>, y busca las regiones de <span class="mm">x</span> donde los errores comparten signo. Ahí es donde puede ganar algo.</p>
+
+  <p>En XGBoost esto se formaliza con dos cantidades por punto, tomadas de la expansión de Taylor de la función de pérdida alrededor de la predicción actual: el <strong>gradiente</strong> <span class="mm">g<sub>i</sub></span> (hacia dónde y cuánto empuja ese punto) y el <strong>hessiano</strong> <span class="mm">h<sub>i</sub></span> (cuánta confianza tiene ese empujón). Para el error cuadrático son sencillos: <span class="tok">g<sub>i</sub> = F(x<sub>i</sub>) − y<sub>i</sub></span> y <span class="tok">h<sub>i</sub> = 1</span>. Es decir, el gradiente <em>es</em> el residuo cambiado de signo. Ese es el motor que corre debajo de todo lo que sigue.</p>
+</section>
+
+<section id="lab">
+  <p class="eyebrow">El laboratorio</p>
+  <h2>El ensamble en marcha</h2>
+  <p>Aquí tienes un XGBoost completo, entrenándose de verdad en el navegador sobre 60 puntos ruidosos. Dale a <strong>Reproducir</strong> y mira la curva violeta perseguir a los datos. Después vuelve, mueve los controles y observa qué cambia.</p>
+
+  <div class="plate">
+    <div class="console">
+      <div class="transport">
+        <button class="primary" id="btnPlay">▶&nbsp; Reproducir</button>
+        <button id="btnStep">Una ronda</button>
+        <button id="btnBack">◀</button>
+        <button id="btnReset">Reiniciar</button>
+        <button id="btnData">Otros datos</button>
+        <span class="round-badge">ronda&nbsp; <b id="roundNow">0</b>&nbsp;/&nbsp;<span id="roundMax">50</span></span>
+      </div>
+      <div class="sliders">
+        <div class="ctl">
+          <label for="sEta"><span>η &nbsp;aprendizaje</span><b id="vEta">0,30</b></label>
+          <input type="range" id="sEta" min="0.05" max="1" step="0.05" value="0.3">
+        </div>
+        <div class="ctl">
+          <label for="sDepth"><span>d &nbsp;profundidad</span><b id="vDepth">2</b></label>
+          <input type="range" id="sDepth" min="1" max="4" step="1" value="2">
+        </div>
+        <div class="ctl">
+          <label for="sLambda"><span>λ &nbsp;regularización</span><b id="vLambda">1,0</b></label>
+          <input type="range" id="sLambda" min="0" max="20" step="0.5" value="1">
+        </div>
+        <div class="ctl">
+          <label for="sGamma"><span>γ &nbsp;peaje por corte</span><b id="vGamma">0,0</b></label>
+          <input type="range" id="sGamma" min="0" max="6" step="0.2" value="0">
+        </div>
+        <div class="ctl">
+          <label for="sNoise"><span>σ &nbsp;ruido</span><b id="vNoise">0,45</b></label>
+          <input type="range" id="sNoise" min="0" max="1.2" step="0.05" value="0.45">
+        </div>
+      </div>
+      <p class="narration" id="narration" aria-live="polite"></p>
+    </div>
+
+    <div class="grid2">
+      <div class="panel fig" id="figA">
+        <h3>El ensamble acumulado</h3>
+        <p class="sub">Todos los árboles sumados. Por eso la curva es escalonada: es una suma de cajas.</p>
+        <div class="scroll-x"><svg class="chart" id="svgA" viewBox="0 0 560 320" style="min-width:430px" role="img" aria-label="Dispersión de los datos con la curva de predicción acumulada del ensamble."></svg></div>
+        <div class="legend">
+          <span><i class="sw dot" style="background:var(--ink-2)"></i>datos observados</span>
+          <span><i class="sw" style="background:var(--accent)"></i>F(x) del ensamble</span>
+          <span style="color:var(--muted)"><i class="sw dash"></i>función real</span>
+        </div>
+        <div class="tip" id="tipA"></div>
+      </div>
+
+      <div class="panel fig" id="figB">
+        <h3>Lo que vio el árbol de esta ronda</h3>
+        <p class="sub">Residuos antes de la ronda, y la corrección que el árbol propuso para ellos.</p>
+        <div class="scroll-x"><svg class="chart" id="svgB" viewBox="0 0 560 320" style="min-width:430px" role="img" aria-label="Residuos por punto como barras con signo, y la función escalonada que el árbol nuevo ajusta sobre ellos."></svg></div>
+        <div class="legend">
+          <span><i class="sw" style="background:var(--pos)"></i>modelo se queda corto</span>
+          <span><i class="sw" style="background:var(--neg)"></i>modelo se pasa</span>
+          <span style="color:var(--ink)"><i class="sw dash"></i>h(x) propuesto</span>
+          <span><i class="sw" style="background:var(--accent)"></i>η·h(x) aplicado</span>
+        </div>
+        <div class="tip" id="tipB"></div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:16px">
+      <h3>El árbol de esta ronda</h3>
+      <p class="sub">Pasa el cursor por cualquier nodo para ver qué puntos caen dentro de él. Cada hoja lleva su peso <span class="mm">w</span>, y cada corte, la ganancia que justificó hacerlo.</p>
+      <div class="scroll-x">
+        <svg class="chart" id="svgT" viewBox="0 0 900 250" style="min-width:520px" role="img" aria-label="Diagrama del árbol de decisión de la ronda actual, con condiciones de corte y pesos de hoja."></svg>
+      </div>
+    </div>
+
+    <div class="panel fig" style="margin-top:16px">
+      <h3>El error, ronda a ronda</h3>
+      <p class="sub">Raíz del error cuadrático medio. Los datos de validación no participan en el entrenamiento.</p>
+      <div class="scroll-x"><svg class="chart" id="svgL" viewBox="0 0 900 260" style="min-width:620px" role="img" aria-label="Curvas de error RMSE en entrenamiento y validación a lo largo de las rondas."></svg></div>
+      <div class="legend">
+        <span><i class="sw" style="background:var(--accent)"></i>entrenamiento</span>
+        <span><i class="sw" style="background:var(--teal)"></i>validación</span>
+      </div>
+      <div class="tip" id="tipL"></div>
+      <details>
+        <summary>Ver los números en tabla</summary>
+        <div class="tbl-wrap">
+          <table id="lossTable">
+            <thead><tr><th>Ronda</th><th>RMSE entren.</th><th>RMSE valid.</th><th>Hojas</th><th>Hojas acum.</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+
+    <div class="tiles">
+      <div class="tile"><div class="t-lab">RMSE entren.</div><div class="t-val" id="tTrain" style="color:var(--accent)">—</div><div class="t-sub">sobre 60 puntos</div></div>
+      <div class="tile"><div class="t-lab">RMSE valid.</div><div class="t-val" id="tVal" style="color:var(--teal)">—</div><div class="t-sub">sobre 40 puntos nuevos</div></div>
+      <div class="tile"><div class="t-lab">Árboles</div><div class="t-val" id="tTrees">0</div><div class="t-sub">sumados hasta ahora</div></div>
+      <div class="tile"><div class="t-lab">Hojas totales</div><div class="t-val" id="tLeaves">0</div><div class="t-sub">complejidad del ensamble</div></div>
+      <div class="tile"><div class="t-lab">Mejora</div><div class="t-val" id="tGap">—</div><div class="t-sub">frente a predecir la media</div></div>
+    </div>
+  </div>
+
+  <h3 style="margin-top:38px">Qué mirar mientras corre</h3>
+  <p style="margin-top:.6em">Los primeros árboles hacen casi todo el trabajo: capturan la forma gruesa de la curva y el error se desploma. A partir de ahí las rondas empiezan a discutir por detalles cada vez más pequeños. Sube <span class="mm">η</span> a 1 y verás el ensamble llegar en cuatro rondas… y quedarse temblando, sobreajustado al ruido. Bájalo a 0,05 y necesitará las cincuenta rondas, pero terminará más suave. Esa es toda la tensión de XGBoost: <strong>avanzar rápido o avanzar bien</strong>.</p>
+  <p>Vigila también la curva verde. Cuando la de entrenamiento sigue bajando y la de validación empieza a subir, el modelo dejó de aprender la señal y se puso a memorizar el ruido. El punto donde se separan es, literalmente, el número de árboles que deberías usar — es lo que hace <span class="tok">early stopping</span> en la práctica.</p>
+</section>
+
+<section id="corte">
+  <p class="eyebrow">La decisión</p>
+  <h2>Dónde cortar, y por qué ahí</h2>
+  <p>Todo lo anterior descansa sobre una única decisión, repetida en cada nodo de cada árbol: <em>¿dónde parto los datos?</em> XGBoost no la toma por intuición ni por varianza, como los árboles clásicos. Tiene una fórmula cerrada que le dice exactamente cuánta pérdida se ahorra con cada corte candidato.</p>
+  <p>Empieza por el peso óptimo de una hoja. Si un grupo de puntos termina junto en una hoja, el valor que minimiza la pérdida regularizada de ese grupo es:</p>
+  <p style="text-align:center;font-family:var(--serif);font-size:1.4rem;font-style:italic;margin-top:1.5em;margin-bottom:1.5em">w<sup>∗</sup> = −G / (H + λ)</p>
+  <p>donde <span class="mm">G</span> es la suma de los gradientes de esos puntos y <span class="mm">H</span> la de sus hessianos. Sin <span class="mm">λ</span>, para el error cuadrático, eso es simplemente el residuo medio del grupo. Con <span class="mm">λ</span>, es el residuo medio <em>encogido hacia cero</em>: cuantos menos puntos tenga la hoja, más la castiga.</p>
+  <p>Y de ahí sale la <strong>ganancia</strong> de un corte: la calidad de los dos hijos, menos la del padre, menos un peaje fijo <span class="mm">γ</span> por atreverse a cortar. Mueve el umbral y mira cómo responde.</p>
+
+  <div class="plate">
+    <div class="gain-grid">
+      <div class="panel fig">
+        <h3>Elegir el umbral</h3>
+        <p class="sub">Arrastra la línea, o usa el deslizador. Abajo, la ganancia de todos los cortes posibles.</p>
+        <div class="scroll-x"><svg class="chart" id="svgG" viewBox="0 0 560 330" style="min-width:430px" role="img" aria-label="Residuos con una línea de corte móvil, y debajo el perfil de ganancia para cada umbral posible."></svg></div>
+        <div class="ctl" style="margin-top:6px">
+          <label for="sThr"><span>umbral del corte</span><b id="vThr">5,00</b></label>
+          <input type="range" id="sThr" min="0.2" max="9.8" step="0.05" value="5">
+        </div>
+        <div class="legend">
+          <span><i class="sw" style="background:var(--pos)"></i>residuo positivo</span>
+          <span><i class="sw" style="background:var(--neg)"></i>residuo negativo</span>
+          <span><i class="sw" style="background:var(--amber)"></i>ganancia por umbral</span>
+        </div>
+      </div>
+      <div>
+        <div class="panel">
+          <h3>La cuenta, en vivo</h3>
+          <p class="sub">Ganancia = calidad de los hijos − calidad del padre − peaje.</p>
+          <div class="formula" id="gainFormula"></div>
+          <div class="readout">
+            <div><div class="r-lab">G izquierda</div><div class="r-val" id="rGL">—</div></div>
+            <div><div class="r-lab">G derecha</div><div class="r-val" id="rGR">—</div></div>
+            <div><div class="r-lab">w izquierda</div><div class="r-val" id="rWL">—</div></div>
+            <div><div class="r-lab">w derecha</div><div class="r-val" id="rWR">—</div></div>
+            <div><div class="r-lab">ganancia de este corte</div><div class="r-val" id="rGain" style="color:var(--amber);font-weight:700">—</div></div>
+            <div><div class="r-lab">mejor corte posible</div><div class="r-val" id="rBest">—</div></div>
+          </div>
+          <div class="sliders" style="grid-template-columns:1fr 1fr">
+            <div class="ctl">
+              <label for="sLam2"><span>λ</span><b id="vLam2">1,0</b></label>
+              <input type="range" id="sLam2" min="0" max="20" step="0.5" value="1">
+            </div>
+            <div class="ctl">
+              <label for="sGam2"><span>γ</span><b id="vGam2">0,0</b></label>
+              <input type="range" id="sGam2" min="0" max="12" step="0.25" value="0">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p style="margin-top:26px">Fíjate en dos cosas. La primera: el perfil de ganancia tiene picos claros, y están exactamente donde los residuos cambian de signo. Un corte sólo vale la pena si separa errores que tiran en direcciones opuestas — partir un grupo homogéneo no gana nada, porque los dos hijos predecirían casi lo mismo que el padre.</p>
+  <p>La segunda: sube <span class="mm">γ</span> y el perfil entero baja. Cuando ningún candidato consigue superar el peaje, la ganancia máxima queda por debajo de cero y XGBoost <strong>no corta</strong>: el nodo se queda como hoja. Así es como <span class="mm">γ</span> poda el árbol antes de que crezca, en vez de recortarlo después.</p>
+</section>
+
+<section id="frenos">
+  <p class="eyebrow">Los frenos</p>
+  <h2>Cuatro maneras de no memorizar el ruido</h2>
+  <p>Un ensamble que sólo persigue residuos acaba, inevitablemente, persiguiendo también el error de medición. XGBoost trae cuatro frenos distintos, y no son intercambiables: cada uno ataca el sobreajuste por un lado diferente.</p>
+
+  <div class="cards full">
+    <div class="card">
+      <div class="c-sym">η</div>
+      <h3>Tasa de aprendizaje</h3>
+      <p>Multiplica cada corrección antes de sumarla. Con η = 0,1, cada árbol aporta un décimo de lo que propuso. Ningún árbol individual puede desviar el ensamble, así que los errores de un árbol malo los arregla el siguiente. Es el freno más eficaz — y el que obliga a entrenar más árboles.</p>
+    </div>
+    <div class="card">
+      <div class="c-sym">λ</div>
+      <h3>Regularización L2</h3>
+      <p>Se suma al denominador del peso de la hoja. Encoge las predicciones hacia cero, y castiga desproporcionadamente a las hojas con pocos puntos: una hoja con 2 observaciones y λ = 10 apenas mueve la aguja. Evita que un puñado de puntos raros dicte una caja entera.</p>
+    </div>
+    <div class="card">
+      <div class="c-sym">γ</div>
+      <h3>Complejidad mínima</h3>
+      <p>El peaje que todo corte debe pagar en ganancia. Si la mejora no lo cubre, el corte no se hace. Poda por adelantado, y hace que el árbol crezca sólo donde hay estructura real que capturar.</p>
+    </div>
+    <div class="card">
+      <div class="c-sym">d</div>
+      <h3>Profundidad máxima</h3>
+      <p>Limita cuántos cortes encadenados puede hacer un árbol, y por tanto cuántas variables puede combinar. Con profundidad 1 (un <em>tocón</em>) el modelo es puramente aditivo: no captura ninguna interacción entre variables. Cada nivel extra duplica las hojas posibles.</p>
+    </div>
+  </div>
+
+  <p style="margin-top:24px">A esto se suman los que no caben en un ejemplo de una variable: <span class="tok">subsample</span>, que entrena cada árbol con una muestra aleatoria de filas, y <span class="tok">colsample_bytree</span>, que le esconde parte de las columnas. Ambos introducen desacuerdo entre los árboles a propósito, igual que hace un <em>random forest</em>, pero dentro de un esquema secuencial.</p>
+</section>
+
+<section id="porque">
+  <p class="eyebrow">El resto de la caja</p>
+  <h2>Qué hace XGBoost que un boosting cualquiera no</h2>
+  <p>La receta de arriba —ajustar árboles a los residuos— es <em>gradient boosting</em> clásico, de 2001. Lo que convirtió a XGBoost en el estándar de facto para datos tabulares fueron cuatro decisiones de ingeniería encima de esa receta:</p>
+
+  <div class="cards full">
+    <div class="card">
+      <h3>Segundo orden</h3>
+      <p>Usa gradiente <em>y</em> hessiano, no sólo el gradiente. Eso le da la fórmula cerrada del peso óptimo y de la ganancia, en vez de tener que buscar el paso por línea. Converge en menos rondas y funciona igual para regresión, clasificación o <em>ranking</em>: sólo cambian las dos derivadas.</p>
+    </div>
+    <div class="card">
+      <h3>Regularización dentro del objetivo</h3>
+      <p>λ y γ no son un post-proceso: están en la función que el algoritmo minimiza. El árbol se construye ya sabiendo lo que cuesta ser complejo, y por eso la poda ocurre durante el crecimiento.</p>
+    </div>
+    <div class="card">
+      <h3>Consciente de los huecos</h3>
+      <p>Cada nodo aprende una <em>dirección por defecto</em> para los valores ausentes: prueba mandarlos a izquierda y a derecha, y se queda con la que más gana. No hay que imputar nada, y las matrices dispersas se recorren saltándose los ceros.</p>
+    </div>
+    <div class="card">
+      <h3>Rápido a propósito</h3>
+      <p>Ordena las columnas una sola vez en bloques comprimidos y reutiliza ese orden en todos los nodos y todos los árboles, en paralelo. Con el modo por histogramas agrupa cada variable en ~256 cubetas, y la búsqueda del mejor corte pasa de recorrer puntos a recorrer cubetas.</p>
+    </div>
+  </div>
+
+  <div class="recap">
+    <p style="margin:0">Puesto en una frase: <strong>XGBoost minimiza una pérdida regularizada añadiendo, de una en una, funciones escalonadas que apuntan en la dirección del gradiente</strong> — y cada pieza de esa frase, del gradiente al escalón, la acabas de ver moverse.</p>
+  </div>
+</section>
+
+<section id="glosario">
+  <p class="eyebrow">Referencia</p>
+  <h2>Los símbolos, en corto</h2>
+  <div class="full" style="overflow-x:auto;max-width:52rem;margin:0 auto">
+    <table style="font-size:.88rem">
+      <thead><tr><th>Símbolo</th><th style="text-align:left">Nombre</th><th style="text-align:left">Qué es</th></tr></thead>
+      <tbody>
+        <tr><td style="font-family:var(--serif);font-style:italic">F<sub>t</sub>(x)</td><td style="text-align:left">Ensamble</td><td style="text-align:left">La predicción después de <em>t</em> árboles</td></tr>
+        <tr><td style="font-family:var(--serif);font-style:italic">h<sub>t</sub>(x)</td><td style="text-align:left">Árbol nuevo</td><td style="text-align:left">La corrección propuesta en la ronda <em>t</em></td></tr>
+        <tr><td style="font-family:var(--serif);font-style:italic">g<sub>i</sub></td><td style="text-align:left">Gradiente</td><td style="text-align:left">Derivada primera de la pérdida en el punto <em>i</em>; para el error cuadrático, <span class="tok">F(x)−y</span></td></tr>
+        <tr><td style="font-family:var(--serif);font-style:italic">h<sub>i</sub></td><td style="text-align:left">Hessiano</td><td style="text-align:left">Derivada segunda; con error cuadrático vale 1 para todos</td></tr>
+        <tr><td style="font-family:var(--serif);font-style:italic">G, H</td><td style="text-align:left">Sumas del nodo</td><td style="text-align:left">Suma de gradientes y de hessianos de los puntos que caen en él</td></tr>
+        <tr><td style="font-family:var(--serif);font-style:italic">w</td><td style="text-align:left">Peso de hoja</td><td style="text-align:left">El valor que la hoja predice: <span class="tok">−G/(H+λ)</span></td></tr>
+        <tr><td style="font-family:var(--serif);font-style:italic">η</td><td style="text-align:left">Tasa de aprendizaje</td><td style="text-align:left"><span class="tok">learning_rate</span> · cuánto de cada árbol se aplica</td></tr>
+        <tr><td style="font-family:var(--serif);font-style:italic">λ</td><td style="text-align:left">Regularización L2</td><td style="text-align:left"><span class="tok">reg_lambda</span> · encoge los pesos de hoja</td></tr>
+        <tr><td style="font-family:var(--serif);font-style:italic">γ</td><td style="text-align:left">Complejidad mínima</td><td style="text-align:left"><span class="tok">gamma</span> · ganancia mínima para permitir un corte</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<footer>
+  <span>Todo lo de esta página se calcula en el navegador</span>
+  <span>Error cuadrático · búsqueda exacta de cortes</span>
+</footer>
+</main>
+
+<script>
+(() => {
+"use strict";
+const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const NS = "http://www.w3.org/2000/svg";
+
+/* ═════════ utilidades numéricas ═════════ */
+const mulberry = s => () => {
+  s = s + 0x6D2B79F5 | 0;
+  let t = Math.imul(s ^ s >>> 15, 1 | s);
+  t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+  return ((t ^ t >>> 14) >>> 0) / 4294967296;
+};
+function gauss(r){ let u = 0, v = 0; while(!u) u = r(); while(!v) v = r(); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
+const scale = (d0,d1,r0,r1) => v => r0 + (v-d0)/(d1-d0)*(r1-r0);
+const clamp = (v,a,b) => v < a ? a : v > b ? b : v;
+const fmt = (v,d=2) => v.toFixed(d).replace(".", ",");
+const easeIO = t => t < .5 ? 4*t*t*t : 1 - Math.pow(-2*t+2,3)/2;
+
+/* ═════════ datos ═════════ */
+const XMIN = 0, XMAX = 10, GRIDN = 260;
+const GRID = Array.from({length:GRIDN}, (_,i) => XMIN + (XMAX-XMIN)*i/(GRIDN-1));
+const truef = x => 2*Math.sin(x) + 0.32*x - 1.2;
+
+function makeData(n, seed, noise){
+  const r = mulberry(seed), xs = [];
+  for(let i=0;i<n;i++) xs.push(XMIN + (XMAX-XMIN)*r());
+  xs.sort((a,b) => a-b);
+  return xs.map(x => ({x, y: truef(x) + gauss(r)*noise}));
+}
+
+/* ═════════ un árbol de XGBoost (búsqueda exacta) ═════════ */
+function fitTree(data, g, h, p){
+  const order = data.map((_,i) => i).sort((a,b) => data[a].x - data[b].x);
+  let nLeaves = 0, totalGain = 0, maxDepth = 0;
+
+  function build(idx, depth, lo, hi){
+    let G = 0, H = 0;
+    for(const i of idx){ G += g[i]; H += h[i]; }
+    const node = {G, H, n: idx.length, lo, hi, depth, w: -G/(H + p.lambda), idx};
+    maxDepth = Math.max(maxDepth, depth);
+    if(depth >= p.maxDepth || idx.length < 2*p.minChild){ node.leaf = true; nLeaves++; return node; }
+
+    let best = null, GL = 0, HL = 0;
+    for(let k=0;k<idx.length-1;k++){
+      GL += g[idx[k]]; HL += h[idx[k]];
+      const xa = data[idx[k]].x, xb = data[idx[k+1]].x;
+      if(xa === xb) continue;
+      const nl = k+1, nr = idx.length - nl;
+      if(nl < p.minChild || nr < p.minChild) continue;
+      const GR = G - GL, HR = H - HL;
+      const gain = 0.5*(GL*GL/(HL+p.lambda) + GR*GR/(HR+p.lambda) - G*G/(H+p.lambda)) - p.gamma;
+      if(!best || gain > best.gain) best = {gain, thr: (xa+xb)/2, k};
+    }
+    if(!best || best.gain <= 0){ node.leaf = true; nLeaves++; return node; }
+
+    node.thr = best.thr; node.gain = best.gain; totalGain += best.gain;
+    node.left  = build(idx.slice(0, best.k+1), depth+1, lo, best.thr);
+    node.right = build(idx.slice(best.k+1),    depth+1, best.thr, hi);
+    return node;
+  }
+  const root = build(order, 0, XMIN, XMAX);
+  return {root, nLeaves, totalGain, maxDepth};
+}
+const treePred = (node,x) => { let n = node; while(!n.leaf) n = x < n.thr ? n.left : n.right; return n.w; };
+const rmse = (data,F) => Math.sqrt(data.reduce((s,d,i) => s + (d.y-F[i])**2, 0) / data.length);
+
+/* ═════════ la corrida completa de boosting ═════════ */
+function boost(train, val, p, rounds){
+  const base = train.reduce((s,d) => s+d.y, 0) / train.length;
+  let Ftr = train.map(() => base), Fva = val.map(() => base), Fg = GRID.map(() => base);
+  const hist = [{
+    t:0, tree:null, res: train.map(d => d.y - base), step: GRID.map(() => 0),
+    Fg: Fg.slice(), Ftr: Ftr.slice(),
+    trainRmse: rmse(train,Ftr), valRmse: rmse(val,Fva), leaves:0, cumLeaves:0, gain:0
+  }];
+  let cumLeaves = 0;
+  for(let t=1;t<=rounds;t++){
+    const g = train.map((d,i) => Ftr[i] - d.y);
+    const h = train.map(() => 1);
+    const res = train.map((d,i) => d.y - Ftr[i]);
+    const tree = fitTree(train, g, h, p);
+    const step = GRID.map(x => treePred(tree.root, x));
+    Ftr = Ftr.map((f,i) => f + p.eta*treePred(tree.root, train[i].x));
+    Fva = Fva.map((f,i) => f + p.eta*treePred(tree.root, val[i].x));
+    Fg  = Fg.map((f,i) => f + p.eta*step[i]);
+    cumLeaves += tree.nLeaves;
+    hist.push({
+      t, tree, res, step, Fg: Fg.slice(), Ftr: Ftr.slice(),
+      trainRmse: rmse(train,Ftr), valRmse: rmse(val,Fva),
+      leaves: tree.nLeaves, cumLeaves, gain: tree.totalGain
+    });
+  }
+  return {hist, base};
+}
+
+/* ═════════ helpers de dibujo SVG ═════════ */
+const el = (tag, attrs, parent) => {
+  const n = document.createElementNS(NS, tag);
+  for(const k in attrs) if(attrs[k] !== null && attrs[k] !== undefined) n.setAttribute(k, attrs[k]);
+  if(parent) parent.appendChild(n);
+  return n;
+};
+/* texto que recorta la línea que tiene detrás, para que nunca se solape */
+const knockout = t => {
+  t.setAttribute("stroke", "var(--surface)");
+  t.setAttribute("stroke-width", 3.4);
+  t.setAttribute("stroke-linejoin", "round");
+  t.setAttribute("paint-order", "stroke");
+  return t;
+};
+const clear = svg => { while(svg.firstChild) svg.removeChild(svg.firstChild); };
+const path = pts => pts.map((p,i) => (i ? "L" : "M") + p[0].toFixed(2) + " " + p[1].toFixed(2)).join(" ");
+
+function axes(svg, m, W, H, sx, sy, opts = {}){
+  const g = el("g", {}, svg);
+  const yt = opts.yTicks || 5, xt = opts.xTicks || 5;
+  const [y0,y1] = sy.domain, [x0,x1] = sx.domain;
+  for(let i=0;i<=yt;i++){
+    const v = y0 + (y1-y0)*i/yt, y = sy(v);
+    el("line", {x1:m.l, x2:W-m.r, y1:y, y2:y, stroke:"var(--rule)", "stroke-width":1}, g);
+    el("text", {x:m.l-8, y:y+3.6, "text-anchor":"end", fill:"var(--muted)",
+      "font-family":"var(--mono)", "font-size":10}, g).textContent = fmt(v, opts.yDec ?? 1);
+  }
+  for(let i=0;i<=xt;i++){
+    const v = x0 + (x1-x0)*i/xt, x = sx(v);
+    el("text", {x, y:H-m.b+15, "text-anchor":"middle", fill:"var(--muted)",
+      "font-family":"var(--mono)", "font-size":10}, g).textContent = opts.xFmt ? opts.xFmt(v) : fmt(v,0);
+  }
+  el("line", {x1:m.l, x2:W-m.r, y1:H-m.b, y2:H-m.b, stroke:"var(--rule-2)", "stroke-width":1}, g);
+  if(opts.xLabel) el("text", {x:W-m.r, y:H-m.b+30, "text-anchor":"end", fill:"var(--muted)",
+    "font-family":"var(--mono)", "font-size":9.5, "letter-spacing":"0.12em"}, g).textContent = opts.xLabel;
+  if(opts.yLabel) el("text", {x:0, y:m.t-6, fill:"var(--muted)",
+    "font-family":"var(--mono)", "font-size":9.5, "letter-spacing":"0.12em"}, g).textContent = opts.yLabel;
+  return g;
+}
+
+/* ═════════ tooltip compartido ═════════ */
+/* el tooltip vive en el panel, pero las coordenadas vienen del SVG: hay que
+   pasar de un sistema al otro, o queda desplazado (y se rompe al hacer scroll) */
+function tipper(tipEl){
+  return {
+    show(svg, px, py, html){
+      const s = svg.getBoundingClientRect(), o = tipEl.offsetParent.getBoundingClientRect();
+      tipEl.innerHTML = html;
+      tipEl.style.left = (s.left - o.left + px) + "px";
+      tipEl.style.top  = (s.top  - o.top  + py) + "px";
+      tipEl.classList.add("on");
+    },
+    hide(){ tipEl.classList.remove("on"); }
+  };
+}
+function svgPoint(svg, evt){
+  const r = svg.getBoundingClientRect(), vb = svg.viewBox.baseVal;
+  return {
+    x: (evt.clientX - r.left) / r.width * vb.width,
+    y: (evt.clientY - r.top) / r.height * vb.height,
+    px: evt.clientX - r.left, py: evt.clientY - r.top,
+    sx: r.width / vb.width, sy: r.height / vb.height
+  };
+}
+
+/* ═══════════════════════════════════════════════════════
+   PORTADA — animación en bucle
+   ═══════════════════════════════════════════════════════ */
+(function hero(){
+  const svg = document.getElementById("heroSvg"), label = document.getElementById("heroRound");
+  const W = 520, H = 250, m = {l:14, r:14, t:14, b:14};
+  const data = makeData(60, 20260815, 0.45);
+  const run = boost(data, data, {eta:0.35, maxDepth:2, lambda:1, gamma:0, minChild:2}, 24);
+  const ys = data.map(d => d.y).concat(run.hist[24].Fg);
+  const y0 = Math.min(...ys) - .5, y1 = Math.max(...ys) + .5;
+  const sx = scale(XMIN, XMAX, m.l, W-m.r); sx.domain = [XMIN,XMAX];
+  const sy = scale(y0, y1, H-m.b, m.t);     sy.domain = [y0,y1];
+
+  const g = el("g", {}, svg);
+  el("path", {d: path(GRID.map(x => [sx(x), sy(truef(x))])), fill:"none",
+    stroke:"var(--muted)", "stroke-width":1.4, "stroke-dasharray":"3 4", opacity:.6}, g);
+  for(const d of data) el("circle", {cx:sx(d.x), cy:sy(d.y), r:2.9, fill:"var(--ink-2)", opacity:.5}, g);
+  const curve = el("path", {fill:"none", stroke:"var(--accent)", "stroke-width":2.6,
+    "stroke-linejoin":"round", "stroke-linecap":"round"}, g);
+  const draw = F => curve.setAttribute("d", path(GRID.map((x,i) => [sx(x), sy(F[i])])));
+
+  if(REDUCED){ draw(run.hist[24].Fg); label.textContent = "ronda 24"; return; }
+
+  let t = 0, phase = 0, last = 0, visible = true, raf = null;
+  const DUR = 480, HOLD = 1500;
+  function frame(now){
+    if(!last) last = now;
+    const dt = now - last;
+    if(phase === 0){
+      const k = Math.min(1, dt/DUR), e = easeIO(k);
+      const a = run.hist[t].Fg, b = run.hist[Math.min(t+1,24)].Fg;
+      draw(a.map((v,i) => v + (b[i]-v)*e));
+      if(k >= 1){ t = Math.min(t+1, 24); label.textContent = "ronda " + t; last = now; if(t >= 24) phase = 1; }
+    } else {
+      if(dt > HOLD){ t = 0; phase = 0; last = now; draw(run.hist[0].Fg); label.textContent = "ronda 0"; }
+    }
+    raf = requestAnimationFrame(frame);
+  }
+  draw(run.hist[0].Fg);
+  const io = new IntersectionObserver(es => {
+    for(const e of es){
+      visible = e.isIntersecting;
+      if(visible && !raf){ last = 0; raf = requestAnimationFrame(frame); }
+      else if(!visible && raf){ cancelAnimationFrame(raf); raf = null; }
+    }
+  }, {threshold:.15});
+  io.observe(document.getElementById("heroFig"));
+})();
+
+/* ═══════════════════════════════════════════════════════
+   DIAGRAMA DEL CICLO
+   ═══════════════════════════════════════════════════════ */
+(function chain(){
+  const svg = document.getElementById("chainSvg");
+  const steps = [
+    {n:"1", t:"Mide el error", s:"gᵢ = F(xᵢ) − yᵢ", c:"var(--pos)"},
+    {n:"2", t:"Ajusta un árbol", s:"a los gradientes, no a y", c:"var(--ink)"},
+    {n:"3", t:"Encoge la corrección", s:"multiplícala por η", c:"var(--accent)"},
+    {n:"4", t:"Súmala al ensamble", s:"Fₜ = Fₜ₋₁ + η·hₜ", c:"var(--accent)"}
+  ];
+  const W = 1000, boxW = 206, gap = (W - steps.length*boxW) / (steps.length-1), top = 34, bh = 78;
+  steps.forEach((s,i) => {
+    const x = i*(boxW+gap);
+    el("rect", {x, y:top, width:boxW, height:bh, rx:3, fill:"var(--surface-2)", stroke:"var(--rule)"}, svg);
+    el("rect", {x, y:top, width:3, height:bh, fill:s.c}, svg);
+    el("text", {x:x+18, y:top+25, fill:"var(--muted)", "font-family":"var(--mono)", "font-size":11,
+      "letter-spacing":"0.14em"}, svg).textContent = "PASO " + s.n;
+    el("text", {x:x+18, y:top+46, fill:"var(--ink)", "font-family":"var(--sans)", "font-size":14.5,
+      "font-weight":650}, svg).textContent = s.t;
+    el("text", {x:x+18, y:top+65, fill:"var(--ink-2)", "font-family":"var(--mono)", "font-size":11}, svg).textContent = s.s;
+    if(i < steps.length-1){
+      const ax = x + boxW + 7, mid = top + bh/2;
+      el("path", {d:`M${ax} ${mid} L${ax+gap-14} ${mid}`, stroke:"var(--rule-2)", "stroke-width":1.5}, svg);
+      el("path", {d:`M${ax+gap-20} ${mid-4.5} L${ax+gap-14} ${mid} L${ax+gap-20} ${mid+4.5}`,
+        fill:"none", stroke:"var(--rule-2)", "stroke-width":1.5, "stroke-linejoin":"round"}, svg);
+    }
+  });
+  const lastX = (steps.length-1)*(boxW+gap) + boxW;
+  const yLoop = top + bh + 34;
+  el("path", {d:`M${lastX-boxW/2} ${top+bh} L${lastX-boxW/2} ${yLoop} L${boxW/2} ${yLoop} L${boxW/2} ${top+bh+6}`,
+    fill:"none", stroke:"var(--accent)", "stroke-width":1.5, "stroke-dasharray":"4 4"}, svg);
+  el("path", {d:`M${boxW/2-4.5} ${top+bh+12} L${boxW/2} ${top+bh+5} L${boxW/2+4.5} ${top+bh+12}`,
+    fill:"none", stroke:"var(--accent)", "stroke-width":1.5, "stroke-linejoin":"round"}, svg);
+  const tx = el("text", {x:W/2, y:yLoop-7, "text-anchor":"middle", fill:"var(--accent)",
+    "font-family":"var(--mono)", "font-size":10.5, "letter-spacing":"0.13em"}, svg);
+  tx.textContent = "Y VUELTA A EMPEZAR — CIENTOS DE VECES";
+})();
+
+/* ═══════════════════════════════════════════════════════
+   LABORATORIO
+   ═══════════════════════════════════════════════════════ */
+(function lab(){
+  const ROUNDS = 50;
+  const P = {eta:0.3, maxDepth:2, lambda:1, gamma:0, minChild:2};
+  let noise = 0.45, seed = 4242;
+  let train, val, run, t = 0, playing = false, raf = null, animFrom = null, animStart = 0;
+  let hoverNode = null;
+
+  const svgA = document.getElementById("svgA"), svgB = document.getElementById("svgB");
+  const svgT = document.getElementById("svgT"), svgL = document.getElementById("svgL");
+  const tipA = tipper(document.getElementById("tipA"));
+  const tipB = tipper(document.getElementById("tipB"));
+  const tipL = tipper(document.getElementById("tipL"));
+  const ANIM = REDUCED ? 1 : 560, PAUSE = REDUCED ? 60 : 210;
+
+  /* ---- geometría común de A y B ---- */
+  const W = 560, H = 320, m = {l:44, r:16, t:16, b:34};
+  let sxA, syA, syB;
+
+  function rebuild(keepT){
+    train = makeData(60, seed, noise);
+    val   = makeData(40, seed + 991, noise);
+    run   = boost(train, val, P, ROUNDS);
+    t = clamp(keepT ? t : 0, 0, ROUNDS);
+    const ys = train.map(d => d.y).concat(run.hist.flatMap(h => [Math.min(...h.Fg), Math.max(...h.Fg)]));
+    const y0 = Math.min(...ys) - .4, y1 = Math.max(...ys) + .4;
+    sxA = scale(XMIN, XMAX, m.l, W-m.r); sxA.domain = [XMIN, XMAX];
+    syA = scale(y0, y1, H-m.b, m.t);     syA.domain = [y0, y1];
+    const rMax = Math.max(...run.hist.map(h => Math.max(...h.res.map(Math.abs), ...h.step.map(Math.abs)))) * 1.12;
+    syB = scale(-rMax, rMax, H-m.b, m.t); syB.domain = [-rMax, rMax];
+    animFrom = null;
+    renderAll();
+  }
+
+  /* ---- A: ensamble ---- */
+  function drawA(F){
+    clear(svgA);
+    axes(svgA, m, W, H, sxA, syA, {yTicks:5, xTicks:5, yDec:1, xLabel:"x", yLabel:"y"});
+    el("path", {d: path(GRID.map(x => [sxA(x), syA(truef(x))])), fill:"none",
+      stroke:"var(--muted)", "stroke-width":1.3, "stroke-dasharray":"3 4", opacity:.75}, svgA);
+    const gp = el("g", {}, svgA);
+    for(const d of train) el("circle", {cx:sxA(d.x), cy:syA(d.y), r:3.1, fill:"none",
+      stroke:"var(--ink-2)", "stroke-width":1.3, opacity:.72}, gp);
+    el("path", {d: path(GRID.map((x,i) => [sxA(x), syA(F[i])])), fill:"none",
+      stroke:"var(--accent)", "stroke-width":2.6, "stroke-linejoin":"round", "stroke-linecap":"round"}, svgA);
+  }
+
+  /* ---- B: residuos + árbol nuevo ---- */
+  function drawB(){
+    clear(svgB);
+    const h = run.hist[Math.max(t,1)];
+    const showRes = run.hist[Math.max(t,1)].res, showStep = run.hist[Math.max(t,1)].step;
+    axes(svgB, m, W, H, sxA, syB, {yTicks:4, xTicks:5, yDec:1, xLabel:"x", yLabel:"residuo"});
+    el("line", {x1:m.l, x2:W-m.r, y1:syB(0), y2:syB(0), stroke:"var(--rule-2)", "stroke-width":1.5}, svgB);
+
+    if(hoverNode){
+      el("rect", {x: sxA(Math.max(hoverNode.lo, XMIN)), y: m.t,
+        width: sxA(Math.min(hoverNode.hi, XMAX)) - sxA(Math.max(hoverNode.lo, XMIN)),
+        height: H-m.b-m.t, fill:"var(--accent)", opacity:.09}, svgB);
+    }
+    const gs = el("g", {}, svgB);
+    train.forEach((d,i) => {
+      const r = showRes[i], c = r >= 0 ? "var(--pos)" : "var(--neg)";
+      const inNode = hoverNode ? (d.x >= hoverNode.lo && d.x < hoverNode.hi) : true;
+      el("line", {x1:sxA(d.x), x2:sxA(d.x), y1:syB(0), y2:syB(r), stroke:c,
+        "stroke-width":1.6, opacity: inNode ? .62 : .16}, gs);
+      el("circle", {cx:sxA(d.x), cy:syB(r), r:2.9, fill:c, opacity: inNode ? 1 : .2}, gs);
+    });
+    if(t > 0){
+      el("path", {d: path(GRID.map((x,i) => [sxA(x), syB(showStep[i])])), fill:"none",
+        stroke:"var(--ink)", "stroke-width":1.7, "stroke-dasharray":"5 3", opacity:.85}, svgB);
+      el("path", {d: path(GRID.map((x,i) => [sxA(x), syB(showStep[i]*P.eta)])), fill:"none",
+        stroke:"var(--accent)", "stroke-width":2.6, "stroke-linejoin":"round"}, svgB);
+    }
+  }
+
+  /* ---- T: el árbol ---- */
+  function drawT(){
+    clear(svgT);
+    const h = run.hist[t];
+    if(t === 0 || !h.tree){
+      svgT.setAttribute("viewBox", "0 0 900 130");
+      el("text", {x:450, y:70, "text-anchor":"middle", fill:"var(--muted)",
+        "font-family":"var(--sans)", "font-size":15},
+        svgT).textContent = "Todavía no hay árboles. El modelo predice la media de y para todo x.";
+      return;
+    }
+    const root = h.tree.root;
+    let nLeaf = 0;
+    (function count(n){ if(n.leaf) nLeaf++; else { count(n.left); count(n.right); } })(root);
+    const cursor = {v:0};
+    (function pos(n){
+      if(n.leaf){ n.px = cursor.v++; return; }
+      pos(n.left); pos(n.right); n.px = (n.left.px + n.right.px)/2;
+    })(root);
+
+    const bw = 128, bh = 42, gapX = 26, gapY = 74;
+    const Wt = Math.max(620, nLeaf*(bw+gapX) + 40), Ht = (h.tree.maxDepth+1)*gapY + 34;
+    svgT.setAttribute("viewBox", `0 0 ${Wt} ${Ht}`);
+    svgT.style.minWidth = Math.min(Wt, 900) + "px";
+    const cx = n => 20 + bw/2 + n.px*(bw+gapX) + (nLeaf === 1 ? (Wt-40-bw)/2 : 0);
+    const cy = n => 24 + n.depth*gapY;
+
+    (function edges(n){
+      if(n.leaf) return;
+      for(const [ch,lab] of [[n.left,"sí"],[n.right,"no"]]){
+        const x1 = cx(n), y1 = cy(n)+bh/2, x2 = cx(ch), y2 = cy(ch)-bh/2, my = (y1+y2)/2;
+        el("path", {d:`M${x1} ${y1} L${x1} ${my} L${x2} ${my} L${x2} ${y2}`, fill:"none",
+          stroke:"var(--rule-2)", "stroke-width":1.4}, svgT);
+        el("text", {x:(x1+x2)/2, y:my-5, "text-anchor":"middle", fill:"var(--muted)",
+          "font-family":"var(--mono)", "font-size":9.5}, svgT).textContent = lab;
+        edges(ch);
+      }
+    })(root);
+
+    (function boxes(n){
+      const x = cx(n)-bw/2, y = cy(n)-bh/2;
+      const g = el("g", {style:"cursor:pointer"}, svgT);
+      const fill = n.leaf ? (n.w >= 0 ? "var(--pos)" : "var(--neg)") : "var(--surface-2)";
+      el("rect", {x, y, width:bw, height:bh, rx:3,
+        fill: n.leaf ? fill : "var(--surface-2)", "fill-opacity": n.leaf ? .13 : 1,
+        stroke: n.leaf ? fill : "var(--rule-2)", "stroke-width":1.2}, g);
+      if(n.leaf){
+        el("text", {x:x+11, y:y+18, fill:"var(--muted)", "font-family":"var(--mono)",
+          "font-size":9, "letter-spacing":"0.13em"}, g).textContent = "HOJA · n=" + n.n;
+        el("text", {x:x+11, y:y+33, fill: fill, "font-family":"var(--mono)", "font-size":13,
+          "font-weight":600}, g).textContent = "w = " + fmt(n.w, 3);
+      } else {
+        el("text", {x:x+11, y:y+18, fill:"var(--ink)", "font-family":"var(--mono)",
+          "font-size":12.5}, g).textContent = "x < " + fmt(n.thr, 2);
+        el("text", {x:x+11, y:y+33, fill:"var(--muted)", "font-family":"var(--mono)",
+          "font-size":9.5}, g).textContent = "ganancia " + fmt(n.gain, 2) + " · n=" + n.n;
+      }
+      g.addEventListener("mouseenter", () => { hoverNode = n; drawB(); });
+      g.addEventListener("mouseleave", () => { hoverNode = null; drawB(); });
+      if(!n.leaf){ boxes(n.left); boxes(n.right); }
+    })(root);
+  }
+
+  /* ---- L: curvas de pérdida ---- */
+  let sxL, syL;
+  const mL = {l:48, r:60, t:18, b:36}, WL = 900, HL = 260;
+  function drawL(){
+    clear(svgL);
+    const upto = run.hist.slice(0, t+1);
+    const all = run.hist.map(h => [h.trainRmse, h.valRmse]).flat();
+    const y1 = Math.max(...all)*1.04, y0 = Math.max(0, Math.min(...all)*0.9);
+    sxL = scale(0, ROUNDS, mL.l, WL-mL.r); sxL.domain = [0, ROUNDS];
+    syL = scale(y0, y1, HL-mL.b, mL.t);    syL.domain = [y0, y1];
+    axes(svgL, mL, WL, HL, sxL, syL, {yTicks:4, xTicks:10, yDec:2,
+      xLabel:"ronda", yLabel:"RMSE", xFmt: v => String(Math.round(v))});
+
+    const best = run.hist.reduce((a,b) => b.valRmse < a.valRmse ? b : a);
+    if(best.t > 0 && best.t <= t){
+      el("line", {x1:sxL(best.t), x2:sxL(best.t), y1:mL.t, y2:HL-mL.b,
+        stroke:"var(--teal)", "stroke-width":1.2, "stroke-dasharray":"3 3", opacity:.7}, svgL);
+      knockout(el("text", {x:sxL(best.t)+6, y:mL.t+11, fill:"var(--teal)", "font-family":"var(--mono)",
+        "font-size":9.5, "letter-spacing":"0.1em"}, svgL)).textContent = "mejor validación";
+    }
+    for(const [key,color] of [["trainRmse","var(--accent)"],["valRmse","var(--teal)"]]){
+      el("path", {d: path(upto.map(h => [sxL(h.t), syL(h[key])])), fill:"none", stroke:color,
+        "stroke-width":2.2, "stroke-linejoin":"round", "stroke-linecap":"round"}, svgL);
+      const last = upto[upto.length-1];
+      el("circle", {cx:sxL(last.t), cy:syL(last[key]), r:3.6, fill:color,
+        stroke:"var(--surface)", "stroke-width":1.6}, svgL);
+      knockout(el("text", {x:sxL(last.t)+9, y:syL(last[key])+4, fill:color, "font-family":"var(--mono)",
+        "font-size":11, "font-weight":600}, svgL)).textContent = fmt(last[key], 2);
+    }
+  }
+
+  /* ---- tabla ---- */
+  function drawTable(){
+    const tb = document.querySelector("#lossTable tbody");
+    tb.innerHTML = run.hist.map(h =>
+      `<tr class="${h.t === t ? "now" : ""}"><td>${h.t}</td><td>${fmt(h.trainRmse,3)}</td>` +
+      `<td>${fmt(h.valRmse,3)}</td><td>${h.leaves || "—"}</td><td>${h.cumLeaves}</td></tr>`
+    ).join("");
+  }
+
+  /* ---- indicadores + narración ---- */
+  function drawMeta(){
+    const h = run.hist[t], h0 = run.hist[0];
+    document.getElementById("roundNow").textContent = t;
+    document.getElementById("tTrain").textContent = fmt(h.trainRmse, 3);
+    document.getElementById("tVal").textContent = fmt(h.valRmse, 3);
+    document.getElementById("tTrees").textContent = t;
+    document.getElementById("tLeaves").textContent = h.cumLeaves;
+    document.getElementById("tGap").textContent = t === 0 ? "—" :
+      "−" + Math.round((1 - h.valRmse/h0.valRmse)*100) + "%";
+
+    const n = document.getElementById("narration");
+    if(t === 0){
+      n.innerHTML = "<b>Ronda 0.</b> Todavía no hay ningún árbol. El modelo predice la media de <span class='mm'>y</span> para todo <span class='mm'>x</span> — la línea plana. Todo lo que separa esa línea de cada punto es residuo por explicar.";
+      return;
+    }
+    const tree = h.tree, pos = h.res.filter(r => r > 0).length;
+    const prev = run.hist[t-1], drop = prev.trainRmse - h.trainRmse;
+    const overfit = h.valRmse > run.hist.reduce((a,b) => b.valRmse < a.valRmse ? b : a).valRmse + 1e-9
+                    && t > run.hist.reduce((a,b) => b.valRmse < a.valRmse ? b : a).t;
+    let s = `<b>Ronda ${t}.</b> El árbol vio ${pos} residuos positivos y ${60-pos} negativos, `;
+    s += tree.nLeaves === 1
+      ? "y no encontró ningún corte que superara el peaje γ: se quedó en una sola hoja. "
+      : `hizo ${tree.nLeaves-1} corte${tree.nLeaves > 2 ? "s" : ""} y quedó en ${tree.nLeaves} hojas. `;
+    s += `Aplicando solo η = ${fmt(P.eta,2)} de su propuesta, el error de entrenamiento ${drop >= 0 ? "bajó" : "subió"} ${fmt(Math.abs(drop),4)}.`;
+    if(overfit) s += " <b>Ojo:</b> la validación ya empeoró respecto a su mejor punto — a partir de aquí el ensamble está memorizando ruido.";
+    n.innerHTML = s;
+  }
+
+  function renderAll(){
+    drawA(run.hist[t].Fg);
+    drawB(); drawT(); drawL(); drawMeta(); drawTable();
+    document.getElementById("btnBack").disabled = t === 0;
+    document.getElementById("btnStep").disabled = t >= ROUNDS;
+  }
+
+  /* ---- animación de la curva ---- */
+  function goTo(next, animate){
+    next = clamp(next, 0, ROUNDS);
+    if(!animate || REDUCED){ t = next; renderAll(); return Promise.resolve(); }
+    const from = run.hist[t].Fg, to = run.hist[next].Fg;
+    t = next;
+    drawB(); drawT(); drawL(); drawMeta(); drawTable();
+    document.getElementById("btnBack").disabled = t === 0;
+    document.getElementById("btnStep").disabled = t >= ROUNDS;
+    return new Promise(res => {
+      const t0 = performance.now();
+      (function step(now){
+        const k = clamp((now - t0)/ANIM, 0, 1), e = easeIO(k);
+        drawA(from.map((v,i) => v + (to[i]-v)*e));
+        if(k < 1) raf = requestAnimationFrame(step); else { raf = null; res(); }
+      })(t0);
+    });
+  }
+
+  /* ---- transporte ---- */
+  const btnPlay = document.getElementById("btnPlay");
+  function setPlay(on){
+    playing = on;
+    btnPlay.innerHTML = on ? "❚❚&nbsp; Pausa" : "▶&nbsp; Reproducir";
+  }
+  async function loop(){
+    while(playing && t < ROUNDS){
+      await goTo(t+1, true);
+      if(!playing) break;
+      await new Promise(r => setTimeout(r, PAUSE));
+    }
+    if(t >= ROUNDS) setPlay(false);
+  }
+  btnPlay.addEventListener("click", () => {
+    if(playing){ setPlay(false); return; }
+    if(t >= ROUNDS) t = 0;
+    setPlay(true); loop();
+  });
+  document.getElementById("btnStep").addEventListener("click", () => { setPlay(false); goTo(t+1, true); });
+  document.getElementById("btnBack").addEventListener("click", () => { setPlay(false); goTo(t-1, false); });
+  document.getElementById("btnReset").addEventListener("click", () => { setPlay(false); goTo(0, false); });
+  document.getElementById("btnData").addEventListener("click", () => {
+    setPlay(false); seed = (seed*7919 + 13) % 2147483647; rebuild(false);
+  });
+
+  /* ---- deslizadores ---- */
+  const bind = (id, vid, key, dec, after) => {
+    const s = document.getElementById(id), v = document.getElementById(vid);
+    s.addEventListener("input", () => {
+      const val = parseFloat(s.value);
+      v.textContent = dec === 0 ? String(val) : fmt(val, dec);
+      after(val);
+    });
+  };
+  bind("sEta","vEta","eta",2, v => { P.eta = v; setPlay(false); rebuild(true); });
+  bind("sDepth","vDepth","maxDepth",0, v => { P.maxDepth = v; setPlay(false); rebuild(true); });
+  bind("sLambda","vLambda","lambda",1, v => { P.lambda = v; setPlay(false); rebuild(true); });
+  bind("sGamma","vGamma","gamma",1, v => { P.gamma = v; setPlay(false); rebuild(true); });
+  bind("sNoise","vNoise","noise",2, v => { noise = v; setPlay(false); rebuild(true); });
+  document.getElementById("roundMax").textContent = ROUNDS;
+
+  /* ---- tooltips ---- */
+  svgA.addEventListener("mousemove", e => {
+    const p = svgPoint(svgA, e);
+    let bi = -1, bd = 1e9;
+    train.forEach((d,i) => {
+      const dd = (sxA(d.x)-p.x)**2 + (syA(d.y)-p.y)**2;
+      if(dd < bd){ bd = dd; bi = i; }
+    });
+    if(bd > 900){ tipA.hide(); return; }
+    const d = train[bi], F = run.hist[t].Ftr[bi];
+    tipA.show(svgA, sxA(d.x)*p.sx, syA(d.y)*p.sy,
+      `x = ${fmt(d.x,2)}<br>y = ${fmt(d.y,2)} <i>observado</i><br>F(x) = ${fmt(F,2)} <i>predicho</i><br>residuo = ${fmt(d.y-F,2)}`);
+  });
+  svgA.addEventListener("mouseleave", () => tipA.hide());
+
+  svgB.addEventListener("mousemove", e => {
+    const p = svgPoint(svgB, e);
+    const h = run.hist[Math.max(t,1)];
+    let bi = -1, bd = 1e9;
+    train.forEach((d,i) => {
+      const dd = (sxA(d.x)-p.x)**2 + (syB(h.res[i])-p.y)**2;
+      if(dd < bd){ bd = dd; bi = i; }
+    });
+    if(bd > 900){ tipB.hide(); return; }
+    const d = train[bi], r = h.res[bi], w = t > 0 ? treePred(h.tree.root, d.x) : 0;
+    tipB.show(svgB, sxA(d.x)*p.sx, syB(r)*p.sy,
+      `x = ${fmt(d.x,2)}<br>residuo = ${fmt(r,2)}<br>g = ${fmt(-r,2)} <i>gradiente</i><br>h(x) = ${fmt(w,3)} <i>propuesto</i><br>η·h(x) = ${fmt(w*P.eta,3)} <i>aplicado</i>`);
+  });
+  svgB.addEventListener("mouseleave", () => tipB.hide());
+
+  svgL.addEventListener("mousemove", e => {
+    const p = svgPoint(svgL, e);
+    const r = clamp(Math.round((p.x - mL.l)/(WL-mL.r-mL.l)*ROUNDS), 0, t);
+    const h = run.hist[r];
+    tipL.show(svgL, sxL(r)*p.sx, syL(h.trainRmse)*p.sy,
+      `ronda ${r}<br>entren. ${fmt(h.trainRmse,3)}<br>valid. ${fmt(h.valRmse,3)}<br>hojas acum. ${h.cumLeaves}`);
+  });
+  svgL.addEventListener("mouseleave", () => tipL.hide());
+
+  rebuild(false);
+})();
+
+/* ═══════════════════════════════════════════════════════
+   EXPLORADOR DE GANANCIA
+   ═══════════════════════════════════════════════════════ */
+(function gainLab(){
+  const svg = document.getElementById("svgG");
+  const W = 560, H = 330, m = {l:44, r:16, t:16, b:30};
+  const topH = 190, gapY = 26;
+  let lambda = 1, gamma = 0, thr = 5;
+
+  /* residuos sintéticos: dos regímenes claros + ruido */
+  const pts = (() => {
+    const r = mulberry(77), out = [];
+    for(let i=0;i<26;i++){
+      const x = 0.3 + 9.4*i/25;
+      const base = x < 3.6 ? 1.15 : x < 6.9 ? -1.05 : 0.85;
+      out.push({x, g: -(base + gauss(r)*0.42), h: 1});
+    }
+    return out;
+  })();
+  const res = pts.map(p => -p.g);
+  const rMax = Math.max(...res.map(Math.abs))*1.15;
+  const sx = scale(XMIN, XMAX, m.l, W-m.r); sx.domain = [XMIN, XMAX];
+  const sy = scale(-rMax, rMax, topH, m.t); sy.domain = [-rMax, rMax];
+
+  const stats = th => {
+    let GL = 0, HL = 0, GR = 0, HR = 0, nL = 0, nR = 0;
+    for(const p of pts){
+      if(p.x < th){ GL += p.g; HL += p.h; nL++; } else { GR += p.g; HR += p.h; nR++; }
+    }
+    const q = (G,H) => G*G/(H+lambda);
+    const gain = 0.5*(q(GL,HL) + q(GR,HR) - q(GL+GR, HL+HR)) - gamma;
+    return {GL,HL,GR,HR,nL,nR,gain, wL: -GL/(HL+lambda), wR: -GR/(HR+lambda)};
+  };
+  const profile = () => {
+    const out = [];
+    for(let i=1;i<pts.length;i++){
+      const th = (pts[i-1].x + pts[i].x)/2;
+      out.push({th, gain: stats(th).gain});
+    }
+    return out;
+  };
+
+  function render(){
+    clear(svg);
+    const s = stats(thr), prof = profile();
+    const gmax = Math.max(...prof.map(p => p.gain), 0.001);
+    const gmin = Math.min(...prof.map(p => p.gain), 0);
+    const syG = scale(gmin, gmax, H-m.b, topH + gapY + 14); syG.domain = [gmin, gmax];
+
+    /* — arriba: residuos — */
+    for(let i=0;i<=4;i++){
+      const v = -rMax + 2*rMax*i/4, y = sy(v);
+      el("line", {x1:m.l, x2:W-m.r, y1:y, y2:y, stroke:"var(--rule)", "stroke-width":1}, svg);
+      el("text", {x:m.l-8, y:y+3.6, "text-anchor":"end", fill:"var(--muted)",
+        "font-family":"var(--mono)", "font-size":10}, svg).textContent = fmt(v,1);
+    }
+    el("rect", {x:m.l, y:m.t, width:sx(thr)-m.l, height:topH-m.t, fill:"var(--ink)", opacity:.035}, svg);
+    el("line", {x1:m.l, x2:W-m.r, y1:sy(0), y2:sy(0), stroke:"var(--rule-2)", "stroke-width":1.5}, svg);
+    el("text", {x:0, y:m.t-4, fill:"var(--muted)",
+      "font-family":"var(--mono)", "font-size":9.5, "letter-spacing":"0.12em"}, svg).textContent = "residuo";
+
+    pts.forEach((p,i) => {
+      const r = res[i], c = r >= 0 ? "var(--pos)" : "var(--neg)";
+      el("line", {x1:sx(p.x), x2:sx(p.x), y1:sy(0), y2:sy(r), stroke:c, "stroke-width":1.8, opacity:.6}, svg);
+      el("circle", {cx:sx(p.x), cy:sy(r), r:3.4, fill:c}, svg);
+    });
+
+    /* pesos de hoja: lo que cada lado predeciría */
+    el("line", {x1:m.l, x2:sx(thr), y1:sy(s.wL), y2:sy(s.wL), stroke:"var(--ink)",
+      "stroke-width":2.4, "stroke-dasharray":"7 4"}, svg);
+    el("line", {x1:sx(thr), x2:W-m.r, y1:sy(s.wR), y2:sy(s.wR), stroke:"var(--ink)",
+      "stroke-width":2.4, "stroke-dasharray":"7 4"}, svg);
+    knockout(el("text", {x:m.l+7, y:sy(s.wL) - (s.wL >= 0 ? 7 : -14), fill:"var(--ink)",
+      "font-family":"var(--mono)", "font-size":10.5, "font-weight":600}, svg))
+      .textContent = "w = " + fmt(s.wL,2);
+    knockout(el("text", {x:W-m.r-7, y:sy(s.wR) - (s.wR >= 0 ? 7 : -14), "text-anchor":"end",
+      fill:"var(--ink)", "font-family":"var(--mono)", "font-size":10.5, "font-weight":600}, svg))
+      .textContent = "w = " + fmt(s.wR,2);
+
+    /* línea de corte */
+    el("line", {x1:sx(thr), x2:sx(thr), y1:m.t-4, y2:H-m.b, stroke:"var(--ink)", "stroke-width":1.8}, svg);
+    el("rect", {x:sx(thr)-24, y:m.t-16, width:48, height:15, rx:2, fill:"var(--ink)"}, svg);
+    el("text", {x:sx(thr), y:m.t-5, "text-anchor":"middle", fill:"var(--surface)",
+      "font-family":"var(--mono)", "font-size":10}, svg).textContent = fmt(thr,2);
+
+    /* — abajo: perfil de ganancia — */
+    el("line", {x1:m.l, x2:W-m.r, y1:syG(Math.max(0,gmin)), y2:syG(Math.max(0,gmin)),
+      stroke:"var(--rule-2)", "stroke-width":1}, svg);
+    el("path", {d: path(prof.map(p => [sx(p.th), syG(p.gain)])), fill:"none",
+      stroke:"var(--amber)", "stroke-width":2.2, "stroke-linejoin":"round"}, svg);
+    const best = prof.reduce((a,b) => b.gain > a.gain ? b : a);
+    el("circle", {cx:sx(best.th), cy:syG(best.gain), r:4, fill:"var(--amber)",
+      stroke:"var(--surface)", "stroke-width":1.6}, svg);
+    const anchorRight = sx(best.th) > W*0.72;
+    knockout(el("text", {x:sx(best.th) + (anchorRight ? -8 : 8), y:syG(best.gain)+4,
+      "text-anchor": anchorRight ? "end" : "start", fill:"var(--amber)",
+      "font-family":"var(--mono)", "font-size":10, "font-weight":600}, svg))
+      .textContent = "máx " + fmt(best.gain,2);
+    el("text", {x:0, y:topH+gapY+10, fill:"var(--muted)",
+      "font-family":"var(--mono)", "font-size":9.5, "letter-spacing":"0.12em"}, svg).textContent = "ganancia";
+    for(let i=0;i<=5;i++){
+      const v = XMIN + (XMAX-XMIN)*i/5;
+      el("text", {x:sx(v), y:H-m.b+15, "text-anchor":"middle", fill:"var(--muted)",
+        "font-family":"var(--mono)", "font-size":10}, svg).textContent = fmt(v,0);
+    }
+
+    /* lecturas */
+    document.getElementById("rGL").textContent = fmt(s.GL,2) + "  (n=" + s.nL + ")";
+    document.getElementById("rGR").textContent = fmt(s.GR,2) + "  (n=" + s.nR + ")";
+    document.getElementById("rWL").textContent = fmt(s.wL,3);
+    document.getElementById("rWR").textContent = fmt(s.wR,3);
+    const gEl = document.getElementById("rGain");
+    gEl.textContent = fmt(s.gain,2) + (s.gain <= 0 ? "  ✕ no corta" : "");
+    gEl.style.color = s.gain <= 0 ? "var(--muted)" : "var(--amber)";
+    document.getElementById("rBest").textContent = "x = " + fmt(best.th,2) + " · " + fmt(best.gain,2);
+
+    const frac = (G,H) => `<span class="frac"><span>(${fmt(G,2)})<sup>2</sup></span>` +
+      `<span>${fmt(H,2)} + ${fmt(lambda,2)}</span></span>`;
+    document.getElementById("gainFormula").innerHTML =
+      `<span style="font-size:1.1em">Ganancia</span> &nbsp;=&nbsp; ½ [ ` +
+      `${frac(s.GL, s.HL)} + ${frac(s.GR, s.HR)} − ${frac(s.GL+s.GR, s.HL+s.HR)} ] ` +
+      `− <span class="num">${fmt(gamma,2)}</span> &nbsp;=&nbsp; ` +
+      `<b class="num" style="color:${s.gain > 0 ? "var(--amber)" : "var(--muted)"};font-weight:700">${fmt(s.gain,2)}</b>`;
+  }
+
+  const sThr = document.getElementById("sThr");
+  sThr.addEventListener("input", () => {
+    thr = parseFloat(sThr.value);
+    document.getElementById("vThr").textContent = fmt(thr,2);
+    render();
+  });
+  document.getElementById("sLam2").addEventListener("input", e => {
+    lambda = parseFloat(e.target.value);
+    document.getElementById("vLam2").textContent = fmt(lambda,1);
+    render();
+  });
+  document.getElementById("sGam2").addEventListener("input", e => {
+    gamma = parseFloat(e.target.value);
+    document.getElementById("vGam2").textContent = fmt(gamma,1);
+    render();
+  });
+
+  /* arrastre directo sobre la figura */
+  let dragging = false;
+  const setFromEvent = e => {
+    const p = svgPoint(svg, e);
+    const v = clamp((p.x - m.l)/(W-m.r-m.l)*(XMAX-XMIN) + XMIN, 0.2, 9.8);
+    thr = Math.round(v/0.05)*0.05;
+    sThr.value = thr;
+    document.getElementById("vThr").textContent = fmt(thr,2);
+    render();
+  };
+  svg.style.cursor = "ew-resize";
+  svg.addEventListener("pointerdown", e => { dragging = true; svg.setPointerCapture(e.pointerId); setFromEvent(e); });
+  svg.addEventListener("pointermove", e => { if(dragging) setFromEvent(e); });
+  svg.addEventListener("pointerup", e => { dragging = false; svg.releasePointerCapture(e.pointerId); });
+  svg.addEventListener("pointercancel", () => { dragging = false; });
+
+  render();
+})();
+})();
+</script>
